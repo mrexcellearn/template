@@ -162,7 +162,7 @@
     <script>
         // URL WEB APP APPS SCRIPT SUDAH DI-INJECT 
         const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzcXv4rCSNOTGtpwd8y4MwDJGCAA-eRtS-E8ORDP6w_zIESva1OSqZJTwzI30IzWV1X/exec";
-        const CACHE_KEY = "excellearn_store_cache";
+        const CACHE_KEY = "excellearn_store_cache_v2"; // Berubah untuk me-refresh data lama di browser
         
         let productsData = []; 
         let currentFilter = 'Semua';
@@ -189,9 +189,17 @@
                 const json = await response.json();
                 
                 if(json.status === 'success') {
+                    // Normalisasi Data (Gambar GDrive, Features koma, dsb)
+                    const cleanedProducts = json.data.products.map(p => ({
+                        ...p,
+                        imgMain: getDirectImageUrl(p.imgMain),
+                        images: Array.isArray(p.images) ? p.images.map(img => getDirectImageUrl(img)) : [],
+                        features: parseFeatures(p.features)
+                    }));
+
                     // Simpan data terbaru ke cache
-                    localStorage.setItem(CACHE_KEY, JSON.stringify(json));
-                    productsData = json.data.products;
+                    localStorage.setItem(CACHE_KEY, JSON.stringify({ ...json, data: { ...json.data, products: cleanedProducts } }));
+                    productsData = cleanedProducts;
                     
                     // Re-render UI tanpa loading jika sebelumnya pakai cache
                     if (!cachedData) initFilters();
@@ -205,9 +213,40 @@
             }
         }
 
+        // Fungsi pembantu mengubah link Google Drive menjadi Direct Image Link
+        function getDirectImageUrl(url) {
+            if (!url) return '';
+            const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+            if (match && match[1]) {
+                return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+            }
+            return url;
+        }
+
+        // Fungsi pembantu format Rupiah
+        function formatRupiah(angka) {
+            if (angka === undefined || angka === null || angka === '') return '';
+            const num = parseFloat(angka);
+            if (isNaN(num)) return angka; // Jika teks bukan angka
+            return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num);
+        }
+
         // Fungsi pembantu mengecek apakah harga "Gratis"
         function isFree(priceStr) {
-            return (!priceStr || priceStr.toString().trim() === "" || priceStr == 0);
+            return (!priceStr || priceStr.toString().trim() === "" || priceStr == 0 || priceStr.toString().toLowerCase() === "gratis");
+        }
+
+        // Fungsi pembantu memecah fitur jika dipisah koma
+        function parseFeatures(featuresArr) {
+            let result = [];
+            if (!featuresArr) return result;
+            featuresArr.forEach(f => {
+                f.split(',').forEach(item => {
+                    const trimmed = item.trim();
+                    if(trimmed) result.push(trimmed);
+                });
+            });
+            return result;
         }
 
         function getPlatformBadgesHTML(platforms) {
@@ -236,7 +275,8 @@
 
             filteredProducts.forEach(product => {
                 const isProductFree = isFree(product.price);
-                const displayPrice = isProductFree ? 'Gratis' : product.price;
+                const displayPrice = isProductFree ? 'Gratis' : formatRupiah(product.price);
+                const displayOldPrice = product.oldPrice ? formatRupiah(product.oldPrice) : '';
                 const priceColorClass = isProductFree ? 'text-blue-600' : 'text-forest-700';
                 const badgesHTML = getPlatformBadgesHTML(product.availableFor);
 
@@ -255,7 +295,7 @@
                             <p class="text-sm text-gray-500 mb-4 line-clamp-2 flex-grow">${product.shortDesc}</p>
                             <div class="flex items-center justify-between mt-auto pt-4 border-t border-gray-50">
                                 <div>
-                                    <div class="text-xs text-gray-400 line-through">${product.oldPrice || ''}</div>
+                                    <div class="text-xs text-gray-400 line-through">${displayOldPrice}</div>
                                     <div class="font-display font-800 ${priceColorClass} text-lg">${displayPrice}</div>
                                 </div>
                                 <div class="text-forest-600 font-600 text-sm flex items-center gap-1 group-hover:gap-2 transition-all">Detail <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg></div>
@@ -268,7 +308,8 @@
 
         function initFilters() {
             // Setup Tab Kategori Otomatis berdasarkan data
-            const categories = ['Semua', ...new Set(productsData.map(p => p.category))];
+            const rawCategories = productsData.map(p => p.category ? p.category.trim() : 'Lainnya').filter(c => c !== '');
+            const categories = ['Semua', ...new Set(rawCategories)];
             const filterContainer = document.getElementById('filterContainer');
             filterContainer.innerHTML = '';
             
@@ -303,10 +344,10 @@
             document.getElementById('modalCategory').textContent = product.category;
             document.getElementById('modalDesc').textContent = product.fullDesc;
             
-            // Logic Harga Gratis
-            document.getElementById('modalPrice').textContent = isProductFree ? 'Gratis' : product.price;
+            // Logic Harga Gratis & Rupiah
+            document.getElementById('modalPrice').textContent = isProductFree ? 'Gratis' : formatRupiah(product.price);
             document.getElementById('modalPrice').className = isProductFree ? 'text-3xl font-display font-800 text-blue-600' : 'text-3xl font-display font-800 text-forest-700';
-            document.getElementById('modalOldPrice').textContent = product.oldPrice || '';
+            document.getElementById('modalOldPrice').textContent = product.oldPrice ? formatRupiah(product.oldPrice) : '';
             
             // Tags
             document.getElementById('modalBadges').innerHTML = getPlatformBadgesHTML(product.availableFor);
@@ -328,8 +369,11 @@
             const thumbContainer = document.getElementById('modalThumbnails');
             thumbContainer.innerHTML = '';
             
-            const allImages = [product.imgMain, ...product.images];
-            allImages.forEach(imgSrc => {
+            const validImages = product.images.filter(img => img && img.trim() !== '');
+            const allImages = [product.imgMain, ...validImages].filter(img => img && img.trim() !== '');
+            const uniqueImages = [...new Set(allImages)]; // Menghapus gambar ganda
+
+            uniqueImages.forEach(imgSrc => {
                 const thumbHTML = `
                     <button onclick="document.getElementById('modalMainImg').src='${imgSrc}'" class="w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden border-2 border-transparent hover:border-forest-500 focus:border-forest-500 transition-colors">
                         <img src="${imgSrc}" class="w-full h-full object-cover" alt="Thumbnail" referrerpolicy="no-referrer">
