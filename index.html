@@ -162,7 +162,7 @@
     <script>
         // URL WEB APP APPS SCRIPT SUDAH DI-INJECT 
         const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzcXv4rCSNOTGtpwd8y4MwDJGCAA-eRtS-E8ORDP6w_zIESva1OSqZJTwzI30IzWV1X/exec";
-        const CACHE_KEY = "excellearn_store_cache_v2"; // Berubah untuk me-refresh data lama di browser
+        const CACHE_KEY = "excellearn_store_cache_v3"; // Berubah untuk force-refresh susunan harga & gambar baru
         
         let productsData = []; 
         let currentFilter = 'Semua';
@@ -213,12 +213,14 @@
             }
         }
 
-        // Fungsi pembantu mengubah link Google Drive menjadi Direct Image Link
+        // Fungsi pembantu mengubah link Google Drive menjadi Direct Image Link Anti-Blokir
         function getDirectImageUrl(url) {
             if (!url) return '';
-            const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+            // Deteksi link Google Drive secara presisi
+            const match = url.match(/(?:drive\.google\.com\/.*\/d\/|docs\.google\.com\/.*\/d\/)([a-zA-Z0-9_-]+)/);
             if (match && match[1]) {
-                return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+                // Trik lh3.googleusercontent.com + render kualitas web (w1000) agar tidak diblokir
+                return `https://lh3.googleusercontent.com/d/${match[1]}=w1000`;
             }
             return url;
         }
